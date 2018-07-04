@@ -414,6 +414,7 @@ for mct, etc.
   <!-- http://gcc.gnu.org/onlinedocs/gfortran/ -->
   <ADD_CPPDEFS> -DFORTRANUNDERSCORE -DNO_R16 -DCPRGNU</ADD_CPPDEFS>
   <ADD_CFLAGS compile_threaded="true"> -fopenmp </ADD_CFLAGS>
+  <ADD_CXXFLAGS compile_threaded="true"> -fopenmp </ADD_CXXFLAGS>
   <ADD_FFLAGS compile_threaded="true"> -fopenmp </ADD_FFLAGS>
   <ADD_LDFLAGS compile_threaded="true"> -fopenmp </ADD_LDFLAGS>
   <ADD_CMAKE_OPTS MODEL="cism"> -D CISM_GNU=ON </ADD_CMAKE_OPTS>
@@ -783,8 +784,10 @@ for mct, etc.
 </compiler>
 
 <compiler COMPILER="gnu" MACH="melvin">
-  <ADD_FFLAGS DEBUG="FALSE"> -O2  </ADD_FFLAGS>
-  <ADD_CFLAGS DEBUG="FALSE"> -O2  </ADD_CFLAGS>
+  <ADD_FFLAGS DEBUG="FALSE" compile_threaded="true"> -O2 -fopenmp  </ADD_FFLAGS>
+  <ADD_CFLAGS DEBUG="FALSE" compile_threaded="true"> -O2 -fopenmp  </ADD_CFLAGS>
+  <ADD_FFLAGS DEBUG="FALSE" compile_threaded="false"> -O2  </ADD_FFLAGS>
+  <ADD_CFLAGS DEBUG="FALSE" compile_threaded="false"> -O2  </ADD_CFLAGS>
   <CONFIG_ARGS> --host=Linux </CONFIG_ARGS>
   <NETCDF_PATH>$(NETCDFROOT)</NETCDF_PATH>
   <PNETCDF_PATH>$(PNETCDFROOT)</PNETCDF_PATH>
