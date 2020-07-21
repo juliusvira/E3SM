@@ -91,7 +91,7 @@ module FanUpdateMod
   real(r8), parameter :: water_init_fert = 1e-9_r8   ! water in fertilizer (assumed very little).
   real(r8), parameter :: cnc_nh3_air = 0.0_r8
   ! Slurry infiltration time
-  real(r8), parameter :: slurry_infiltr_time = 6.0_r8*3600_r8 ! seconds
+  real(r8), parameter :: slurry_infiltr_time = 12.0_r8*3600_r8 ! seconds
   ! Reduction factor for fertilizer due to mechanical incorporation.
   ! N available for volatilization becomes multiplied by (1-fert_incorp_reduct).
   real(r8) :: fert_incorp_reduct = 0.25_r8 !?BAD
@@ -336,6 +336,10 @@ contains
        end if
     end do
 
+    if (any(isnan(col_nf%manure_n_appl))) then
+       call endrun('nan man n appl before storage')
+    end if
+
     call handle_storage(bounds, temperature_vars, frictionvel_vars, dt, &
 !         atm2lnd_vars%forc_ndep_sgrz_grc, atm2lnd_vars%forc_ndep_ngrz_grc, & !BAD do we need both of these?
          atm2lnd_vars%forc_ndep2_grc, & ! BAD substituted this instead
@@ -356,10 +360,10 @@ contains
           call endrun('nan nh3 barns')
        end if
        if (any(isnan(col_nf%manure_n_appl))) then
-          call endrun('nan nh3 appl')
+          call endrun('nan man n appl')
        end if
        if (any(isnan(col_nf%manure_n_mix))) then
-          call endrun('nan nh3 appl')
+          call endrun('nan man n mix')
        end if
     end if
 
@@ -411,7 +415,7 @@ contains
        watertend = 0.0_r8
 
        tg = col_es%t_grnd(c)
-       theta = col_ws%h2osoi_vol(c,1)
+       theta = max(col_ws%h2osoi_vol(c,1), 1e-6)
        thetasat = soilstate_vars%watsat_col(c,1)
        bsw = soilstate_vars%bsw_col(c,1) !BAD?
        theta = min(theta, 0.98_r8*thetasat)
@@ -433,7 +437,7 @@ contains
        orgpools(ind_avail) = col_ns%manure_a_grz(c)
        orgpools(ind_resist) = col_ns%manure_r_grz(c)
        orgpools(ind_unavail) = col_ns%manure_u_grz(c)
-       call update_org_n(ndep_org, tg, orgpools, dt, tanprod, soilflux_org)
+       call update_org_n(ndep_org, tg, soilpsi, orgpools, dt, tanprod, soilflux_org)
 !       call update_org_n(ndep_org, tg, soilpsi, orgpools, dt, dz_layer_grz, &
 !            tanprod, soilflux_org, status)
        col_ns%manure_a_grz(c) = orgpools(ind_avail)
@@ -464,9 +468,9 @@ contains
                atm2lnd_vars%forc_q_downscaled_col(c), watertend, &
                runoff_m_s, ngrz * fract_tan, &
                (/0.0_r8, 0.0_r8, sum(tanprod)/), water_init_grz, &
-               cnc_nh3_air, poolranges_grz, Hconc_grz, dz_layer_grz, tanpools(1:num_cls_grz), &
+               poolranges_grz, Hconc_grz, dz_layer_grz, tanpools(1:num_cls_grz), &
                fluxes(1:num_fluxes,1:num_cls_grz), &
-               n_residual, dt/num_substeps, status, num_cls_grz)
+               n_residual, dt/num_substeps, status, numpools=num_cls_grz)
 !          call update_npool(tg, ratm, &
 !               theta, thetasat, infiltr_m_s, evap_m_s, &
 !               atm2lnd_vars%forc_q_downscaled(c), watertend, &
@@ -509,7 +513,7 @@ contains
        orgpools(ind_avail) = col_ns%manure_a_app(c)
        orgpools(ind_resist) = col_ns%manure_r_app(c)
        orgpools(ind_unavail) = col_ns%manure_u_app(c)
-       call update_org_n(ndep_org, tg, orgpools, dt, tanprod, soilflux_org)
+       call update_org_n(ndep_org, tg, soilpsi, orgpools, dt, tanprod, soilflux_org)
 !       call update_org_n(ndep_org, tg, soilpsi, orgpools, dt, dz_layer_slr, &
 !            tanprod, soilflux_org, status)
        col_ns%manure_a_app(c) = orgpools(ind_avail)
@@ -530,10 +534,10 @@ contains
        do ind_substep = 1, num_substeps
           call update_4pool(tg, ratm, theta, thetasat, infiltr_m_s, evap_m_s, &
                atm2lnd_vars%forc_q_downscaled_col(c), watertend, &
-               runoff_m_s, col_nf%manure_tan_appl(c), sum(tanprod), cnc_nh3_air, depth_slurry, &
+               runoff_m_s, col_nf%manure_tan_appl(c), sum(tanprod), depth_slurry, &
                poolranges_slr, tanpools(1:num_cls_slr), Hconc_slr, &
                fluxes(1:num_fluxes, 1:num_cls_slr), &
-               n_residual, dt / num_substeps, status)
+               n_residual, dt / num_substeps, dz_layer_slr, status)
 !          call update_4pool(tg, ratm, theta, thetasat, infiltr_m_s, evap_m_s, &
 !               atm2lnd_vars%forc_q_downscaled(c), watertend, &
 !               runoff_m_s, col_nf%manure_tan_appl(c), sum(tanprod), bsw, depth_slurry, &
@@ -591,7 +595,7 @@ contains
        call update_urea(tg, theta, thetasat, infiltr_m_s, evap_m_s, watertend, &
             runoff_m_s, fert_urea, ureapools, fluxes(1:num_fluxes,1:num_cls_urea), &
             urea_resid, poolranges_fert(1:num_cls_urea), &
-            dt, status, 2)
+            dt, dz_layer_fert, status)
 !       call update_urea(tg, theta, thetasat, infiltr_m_s, evap_m_s, watertend, &
 !            runoff_m_s, fert_urea, bsw, ureapools, fluxes(1:num_fluxes,1:num_cls_urea), &
 !            urea_resid, poolranges_fert(1:num_cls_urea), &
@@ -620,10 +624,10 @@ contains
           ! Fertilizer pools f1...f3
           call update_npool(tg, ratm, theta, thetasat, infiltr_m_s, evap_m_s, &
                atm2lnd_vars%forc_q_downscaled_col(c), watertend, &
-               runoff_m_s, 0.0_r8, tanprod_from_urea, water_init_fert, cnc_nh3_air, &
+               runoff_m_s, 0.0_r8, tanprod_from_urea, water_init_fert, &
                poolranges_fert, Hconc_fert, dz_layer_fert, &
                tanpools(1:num_cls_fert), fluxes(1:num_fluxes,1:num_cls_fert), &
-               n_residual, dt/num_substeps, status, num_cls_fert)
+               n_residual, dt/num_substeps, status, numpools=num_cls_fert)
 !          call update_npool(tg, ratm, theta, thetasat, infiltr_m_s, evap_m_s, &
 !               atm2lnd_vars%forc_q_downscaled(c), watertend, &
 !               runoff_m_s, 0.0_r8, tanprod_from_urea, water_init_fert, bsw, &
@@ -640,10 +644,10 @@ contains
           ! Fertilizer pool f4
           call update_npool(tg, ratm, theta, thetasat, infiltr_m_s, evap_m_s, &
                atm2lnd_vars%forc_q_downscaled_col(c), watertend, &
-               runoff_m_s, fert_generic, (/0.0_r8/), water_init_fert, cnc_nh3_air, &
+               runoff_m_s, fert_generic, (/0.0_r8/), water_init_fert, &
                poolrange_otherfert, (/10**(-ph_crop)/), dz_layer_fert, &
                col_ns%tan_f4(c:c), fluxes(1:num_fluxes,1:1), &
-               n_residual, dt/num_substeps, status, 1)
+               n_residual, dt/num_substeps, status, numpools=1)
 !          call update_npool(tg, ratm, theta, thetasat, infiltr_m_s, evap_m_s, &
 !               atm2lnd_vars%forc_q_downscaled(c), watertend, &
 !               runoff_m_s, fert_generic, (/0.0_r8/), water_init_fert, bsw, &
@@ -967,9 +971,9 @@ contains
 !                write(iulog, *) 'status = ', status
 !                call endrun(msg='eval_fluxes_storage failed for other livestock')
 !             end if
-             call eval_fluxes_storage(flux_avail, &
+             call eval_fluxes_storage(flux_avail, 'open',&
                   t_ref2m(col_pp%pfti(c)), u10(col_pp%pfti(c)), &
-                  fract_direct, volat_coef_barns_closed, volat_coef_stores, &
+                  fract_direct, volat_coef_barns_open, volat_coef_stores, &
                   tan_fract_excr, fluxes_nitr, fluxes_tan, status)
              if (status /=0) then 
                 write(iulog, *) 'status = ', status
@@ -998,7 +1002,6 @@ contains
 !
 !             nh3_flux_stores(c) = sum(fluxes_nitr(iflx_air_stores,:))
 !             nh3_flux_barns(c) = sum(fluxes_nitr(iflx_air_barns,:))
-
               flux_grass_spread = flux_grass_spread + fluxes_nitr(iflx_to_store)*col_pp%wtgcell(c)
               flux_grass_spread_tan = flux_grass_spread_tan + fluxes_tan(iflx_to_store)*col_pp%wtgcell(c)
 
@@ -1010,7 +1013,7 @@ contains
           end do ! column
        end if ! land unit not ispval
 
-       if (col_grass /= ispval) then
+       if (col_grass /= ispval .and. col_pp%wtgcell(col_grass) > 0.0) then
           n_manure_spread(col_grass) = n_manure_spread(col_grass) &
                + flux_grass_spread / col_pp%wtgcell(col_grass)
           tan_manure_spread(col_grass) = tan_manure_spread(col_grass) &
